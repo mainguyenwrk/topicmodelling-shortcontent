@@ -1,0 +1,199 @@
+#Data cleaning & processing
+import pandas as pd
+import re
+import numpy as np
+
+# Read the CSV files
+df1 = pd.read_csv('videos_info.csv', on_bad_lines='skip')
+df2 = pd.read_csv('videos_transcription.csv', on_bad_lines='skip')
+
+
+# Merge the dataframes 
+merged_df = pd.merge(df1, df2, on=merge_column, how='inner')
+
+# Drop duplicated rows and rows with null 'Likes'
+merged_df = merged_df.drop_duplicates().dropna(subset=['Likes'])
+
+# Fill null 'Comment' values with 0
+merged_df['Comment'] = merged_df['Comment'].fillna(0)
+
+# Drop rows where both 'Description' and 'transcription' are N/A
+merged_df = merged_df.dropna(subset=['Description', 'transcription'], how='all')
+
+# Define sponsor keywords
+sponsor_keywords = ["partner", "ad", "sp", "sponsored", "sponsor", "spon", 
+                    "advertising", "sponsoredpost", "promotion", "collab", "collaboration"]
+
+# Identify sponsor posts
+merged_df['SponsorPost'] = merged_df['Description'].apply(
+    lambda x: any(tag in word.lower() for tag in sponsor_keywords for word in re.findall(r'#\w+', str(x)))
+)
+
+# Count the number of sponsor posts
+num_sponsor_posts = merged_df['SponsorPost'].sum()
+
+# Save the cleaned merged dataframe to a CSV file
+merged_df.to_csv('cleaned_merged_file.csv', index=False)
+
+# Print the number of sponsor posts
+print("Number of sponsor posts:", num_sponsor_posts)
+
+# Drop the blank column if it exists
+merged_df = merged_df.dropna(axis=1, how='all')
+
+# Function to convert values in the 'Likes' and 'Comment' columns
+def convert_value(value):
+    if pd.notnull(value):
+        if 'K' in value:
+            return float(value.replace('K', '')) * 1000
+        elif 'M' in value:
+            return float(value.replace('M', '')) * 1000000
+        else:
+            return float(value)
+    else:
+        return np.nan
+
+# Convert 'Likes' column
+merged_df['Likes'] = merged_df['Likes'].apply(convert_value)
+
+# Convert 'Comment' column
+merged_df['Comment'] = merged_df['Comment'].apply(convert_value)
+
+# Save the updated dataframe to a new CSV file
+merged_df.to_csv('updated_merged_file.csv', index=False)
+
+print('Done')
+
+#Text processing 
+import pandas as pd
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer, PorterStemmer
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+from nltk.corpus import words as nltk_words
+
+# Function to ensure required NLTK resources are available
+def ensure_nltk_resources():
+    resources = ['averaged_perceptron_tagger', 'wordnet', 'punkt', 'words']
+    for resource in resources:
+        try:
+            nltk.download(resource)
+        except Exception as e:
+            print(f"Error downloading {resource}: {e}")
+
+# Ensure required NLTK resources
+ensure_nltk_resources()
+
+# Load the dataset
+data = pd.read_csv("updated_merged_file.csv")
+
+# Duplicate 'transcription' column to 'full_transcription'
+data['full_transcription'] = data['transcription']
+
+# Initialize lemmatizer and stemmer
+lemmatizer = WordNetLemmatizer()
+stemmer = PorterStemmer()
+
+# Lemmatization and stemming
+data['transcription'] = data['transcription'].apply(
+    lambda x: ' '.join([stemmer.stem(lemmatizer.lemmatize(word)) for word in str(x).split()])
+)
+
+# Remove rows with less than 3 words in transcription
+data['word_count'] = data['transcription'].apply(lambda x: len(word_tokenize(str(x))))
+data = data[data['word_count'] >= 3].drop('word_count', axis=1)
+
+# Calculate TF-IDF scores
+vectorizer = TfidfVectorizer()
+tfidf_matrix = vectorizer.fit_transform(data['transcription'])
+
+# Get feature names
+feature_names = vectorizer.get_feature_names_out()
+
+# Filter words based on TF-IDF score
+tfidf_threshold = 0.2  # Adjust this threshold as needed
+filtered_transcriptions = []
+for i in range(len(data)):
+    tfidf_scores = tfidf_matrix[i].toarray().flatten()
+    filtered_words = [feature_names[j] for j, score in enumerate(tfidf_scores) if score >= tfidf_threshold]
+    filtered_transcriptions.append(' '.join(filtered_words))
+data['transcription'] = filtered_transcriptions
+
+# Remove numbers
+data['transcription'] = data['transcription'].str.replace(r'\d+', '', regex=True)
+
+# Remove non-English words
+english_words = set(nltk_words.words())
+data['transcription'] = data['transcription'].apply(lambda x: ' '.join([word for word in str(x).split() if word.lower() in english_words]))
+
+# Remove words that contain only a single character
+data['transcription'] = data['transcription'].apply(lambda x: ' '.join([word for word in str(x).split() if len(word) > 2]))
+
+# Remove specific words
+words_to_remove = ['thank', 'hi', 'hello', 'tri', 'pleas', 'gosh', 'god', 'video', 'got', 'her', 'his', 'their', 'in', 'bit', 'just', 'chang', 'yeah', 'hey']
+data['transcription'] = data['transcription'].apply(lambda x: ' '.join([word for word in str(x).split() if word.lower() not in words_to_remove]))
+
+# Function to filter nouns and verbs
+def filter_nouns_and_verbs(text):
+    tokens = word_tokenize(text)
+    tagged_tokens = nltk.pos_tag(tokens)
+    nouns_and_verbs = [word for word, tag in tagged_tokens if tag.startswith('N') or tag.startswith('V')]
+    return ' '.join(nouns_and_verbs)
+
+# Apply filter_nouns_and_verbs to 'transcription' column
+data['transcription'] = data['transcription'].apply(filter_nouns_and_verbs)
+
+# Remove high-frequency words
+word_freq_threshold = 200
+word_counts = data['transcription'].str.lower().str.split().explode().value_counts()
+high_freq_words = set(word_counts[word_counts > word_freq_threshold].index)
+data['transcription'] = data['transcription'].apply(lambda x: ' '.join([word for word in str(x).lower().split() if word not in high_freq_words]))
+
+# Remove infrequent words
+word_freq_threshold = 10
+word_counts = data['transcription'].str.lower().str.split().explode().value_counts()
+infrequent_words = set(word_counts[word_counts <= word_freq_threshold].index)
+data['transcription'] = data['transcription'].apply(lambda x: ' '.join([word for word in str(x).lower().split() if word not in infrequent_words]))
+
+# Reset the index
+data = data.reset_index(drop=True)
+
+# Save the updated dataset
+data.to_csv('updated_file.csv', index=False)
+
+# Print the processed dataset
+print(data.head())
+print(len(data))
+
+
+#Influencers' detail added
+# Read the updated file
+df = pd.read_csv('updated_file.csv')
+
+# Drop rows with null transcriptions
+df = df.dropna(subset=['transcription'])
+
+# Define the mapping of users to gender, influencer type, and follower numbers
+user_mapping = {
+    '@emilymariko': ('female', 'MEGA INFLUENCERS', 12700000),
+    '@bretmanrock': ('male', 'MEGA INFLUENCERS', 15700000),
+    '@arianalee99': ('female', 'MEGA INFLUENCERS', 11600000),
+    '@nathantriska': ('male', 'MEGA INFLUENCERS', 10100000),
+    '@ayypatrick': ('male', 'MEGA INFLUENCERS', 10500000),
+    '@kaelimaee': ('female', 'MEGA INFLUENCERS', 14300000),
+    '@queenstaralien': ('female', 'MEGA INFLUENCERS', 11600000),
+    '@brittany.xavier': ('female', 'MACRO INFLUENCERS', 5200000),
+    '@iamtabithabrown': ('female', 'MACRO INFLUENCERS', 5000000),
+    '@stephgrassodietitian': ('female', 'MACRO INFLUENCERS', 2200000),
+    '@mrduku': ('male', 'Microinfluencer', 642400),
+    '@yourrichbff': ('female', 'Microinfluencer', 2400000)
+}
+
+# Add the gender, influencer type, and follower numbers columns based on the user mapping
+df['Gender'] = df['User'].map(lambda x: user_mapping.get(x, ('', '', 0))[0])
+df['Influencer_Type'] = df['User'].map(lambda x: user_mapping.get(x, ('', '', 0))[1])
+df['Followers'] = df['User'].map(lambda x: user_mapping.get(x, ('', '', 0))[2])
+
+# Save the updated dataframe to a new CSV file
+df.to_csv('updated_file.csv', index=False)
