@@ -1,3 +1,5 @@
+**EXPLORING NARRATIVES AND EMOTIONAL VALENCE IN INFLUENCER MARKETING: A STUDY OF SHORT-VIDEO CONTENT ON TIKTOK**
+
 **1. THE CHALLENGE**
 
 Influencer marketing is crucial for engaging younger demographics who rely on social media for information and entertainment, especially on platforms like TikTok. The effectiveness of influencer content lies in their storytelling techniques and self-disclosure, which build strong audience connections. However, TikTok's short-form video format presents challenges in analyzing narrative strategies, as this brevity often results in a lack of contextual depth, complicating the use of topic modeling to fully capture influencer narratives.
